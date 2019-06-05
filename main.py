@@ -15,7 +15,7 @@ from itertools import cycle, islice
 from argparse import ArgumentParser
 
 argparser = ArgumentParser()
-argparser.add_argument("--data_dir", type=str, default="../data/filtered_feature_bc_matrix" )
+argparser.add_argument("--data_dir", type=str, default="data/filtered_feature_bc_matrix" )
 argparser.add_argument("--matrix_file", type=str, default="matrix.mtx" )
 argparser.add_argument("--features_file", type=str, default="features.tsv" )
 argparser.add_argument("--barcodes_file", type=str, default="barcodes.tsv" )
@@ -36,6 +36,22 @@ print('Matrix dimensionality {}'.format(mat.shape))
 mat = mat.T #becase we want (samples,features) matrix
 
 
+# http://qaru.site/questions/144223/pythonic-way-of-detecting-outliers-in-one-dimensional-observation-data
+# Классификатор на основе MAD работает правильно независимо от размера выборки, в то время как классификатор, основанный на процентилях, классифицирует больше точек, чем больше размер выборки, независимо от того, действительно ли они являются выбросами.
+def mad_based_outlier(points, thresh=3.5):
+    if len(points.shape) == 1:
+        points = points[:,None]
+    median = np.median(points, axis=0)
+    diff = np.sum((points - median)**2, axis=-1)
+    diff = np.sqrt(diff)
+    med_abs_deviation = np.median(diff)
+
+    modified_z_score = 0.6745 * diff / med_abs_deviation
+
+    return modified_z_score > thresh
+
+
+
 #===== 1
 low_expr_thr = 100
 high_expr_thr  = 100000
@@ -44,21 +60,23 @@ per_cell_sum = mat.sum(axis=1)
 per_gene_sum = mat.sum(axis=0)
 
 #===== 2
-mat = mat[:,(per_gene_sum>=low_expr_thr) & (per_gene_sum<=high_expr_thr)] #just remove extreme outliers
+mat = mat[:,per_gene_sum>=mad_based_outlier(per_gene_sum)] #just remove extreme outliers
 
 mean_exp = mat.mean(axis=0)
 std_exp = np.sqrt(mat.std(axis=0))
 CV = std_exp/mean_exp
 
 #===== 3
-mat = mat[:,CV>=10]
+mat = mat[:,CV>=mad_based_outlier(CV)]
 
 
 cells_expression = mat.sum(axis=1)
 
 #===== 4
-mat = mat[cells_expression>=100,:]
+mat = mat[cells_expression>=mad_based_outlier(cells_expression),:]
 mat = np.log(mat+1)
+
+print (mat)
 
 pca = PCA(n_components=100)
 pca.fit(mat)
@@ -123,3 +141,4 @@ for idx, (name, algorithm) in enumerate(clustering_algorithms):
     ax[idx//4, idx%4].set_title(name)
 
 plt.tight_layout()
+plt.savefig('plot1.png', dpi = 300)
